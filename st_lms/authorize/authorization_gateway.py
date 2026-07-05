@@ -16,11 +16,12 @@ LOW_VOLUME_HOURS = list(range(0, 8))
 class AuthorizationGateway:
     """C011 — SINGLE authorization authority.
 
-    4-layer evaluation:
+    5-layer evaluation:
     1. Plan state must be READY
     2. Confidence >= AUTHORIZATION_MIN_CONFIDENCE
     3. Risk <= 5%
     4. River Recommendation != REJECT
+    5. Liquidation Hard-Stop (SL must not cross liquidation price)
     """
 
     def authorize(
@@ -28,6 +29,7 @@ class AuthorizationGateway:
         plan: TradingPlan,
         river_recommendation: RiverRecommendation,
         enable_time_filter: bool = False,
+        enable_liquidation_check: bool = True,  # NEW: Hard-stop liquidation check
     ) -> Authorization:
         """Run all authorization layers and return result.
 
@@ -35,6 +37,7 @@ class AuthorizationGateway:
             plan: TradingPlan must be in READY state
             river_recommendation: Wajib — Prinsip Mutlak #3 (Review Before Authorize)
             enable_time_filter: Enable Time-Based Filter (default False for simulation/backtest)
+            enable_liquidation_check: Enable Liquidation Hard-Stop (default True for safety)
         """
         now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
         current_hour = datetime.now(timezone.utc).hour
@@ -76,7 +79,30 @@ class AuthorizationGateway:
                 timestamp=now_ms,
             )
 
-        # Time-Based Filter (Layer 5) — only when explicitly enabled (live trading)
+        # NEW Layer 5: Liquidation Hard-Stop Check
+        if enable_liquidation_check and plan.liquidation_price > Decimal("0"):
+            # For LONG: SL must be > liquidation_price
+            # For SHORT: SL must be < liquidation_price
+            if plan.direction.value == "LONG":
+                if plan.stop_loss <= plan.liquidation_price:
+                    return Authorization(
+                        authorization_id=generate_authorization_id(),
+                        status=AuthorizationStatus.REJECTED,
+                        confidence=plan.confidence,
+                        reason=f"LIQUIDATION_RISK — Stop Loss ({plan.stop_loss}) crosses liquidation price ({plan.liquidation_price})",
+                        timestamp=now_ms,
+                    )
+            elif plan.direction.value == "SHORT":
+                if plan.stop_loss >= plan.liquidation_price:
+                    return Authorization(
+                        authorization_id=generate_authorization_id(),
+                        status=AuthorizationStatus.REJECTED,
+                        confidence=plan.confidence,
+                        reason=f"LIQUIDATION_RISK — Stop Loss ({plan.stop_loss}) crosses liquidation price ({plan.liquidation_price})",
+                        timestamp=now_ms,
+                    )
+
+        # Time-Based Filter (Layer 6) — only when explicitly enabled (live trading)
         if enable_time_filter and (current_hour in LOW_VOLUME_HOURS or is_weekend) and plan.direction.value != "NEUTRAL":
             return Authorization(
                 authorization_id=generate_authorization_id(),
