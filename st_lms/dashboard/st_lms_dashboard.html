@@ -1,0 +1,745 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ST_LMS — Live Trading Dashboard</title>
+  <script src="https://unpkg.com/lightweight-charts@4.2.1/dist/lightweight-charts.standalone.production.js"></script>
+  <style>
+    *, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
+    
+    /* ── CANDLE TOOLTIP ── */
+    .candle-tooltip {
+      position:absolute; z-index:15; pointer-events:none;
+      background:var(--bg-card); border:1px solid var(--border);
+      border-radius:6px; padding:8px 12px; font-size:11px;
+      box-shadow:0 4px 16px rgba(0,0,0,.5);
+      display:none; min-width:140px;
+    }
+    .candle-tooltip.show { display:block; }
+    .candle-tooltip .ct-row { display:flex; justify-content:space-between; gap:16px; padding:1px 0; }
+    .candle-tooltip .ct-lbl { color:var(--text-secondary); }
+    .candle-tooltip .ct-val { font-weight:500; text-align:right; }
+    .candle-tooltip .ct-val.green { color:var(--green); }
+    .candle-tooltip .ct-val.red { color:var(--red); }
+    .candle-tooltip .ct-time { font-size:10px; color:var(--text-secondary); margin-bottom:4px; padding-bottom:4px; border-bottom:1px solid var(--border); }
+    .candle-tooltip .ct-vol { border-top:1px solid var(--border); margin-top:4px; padding-top:4px; }
+    
+    :root {
+      --bg-primary: #0d0d0d;
+      --bg-secondary: #131722;
+      --bg-card: #1e222d;
+      --bg-hover: #2a2e39;
+      --text-primary: #d1d4dc;
+      --text-secondary: #787b86;
+      --green: #0ecb81;
+      --red: #f6465d;
+      --blue: #2962ff;
+      --yellow: #f0b90b;
+      --orange: #f7931a;
+      --purple: #9146ff;
+      --border: #2a2e39;
+      --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    }
+    
+    html,body { height:100%; font-family:var(--font); background:var(--bg-primary); color:var(--text-primary); overflow:hidden; }
+    ::-webkit-scrollbar { width:5px; height:5px; }
+    ::-webkit-scrollbar-track { background:transparent; }
+    ::-webkit-scrollbar-thumb { background:var(--border); border-radius:3px; }
+    ::-webkit-scrollbar-thumb:hover { background:#3a3d45; }
+
+    /* ── HEADER ── */
+    .header {
+      display:flex; align-items:center; justify-content:space-between;
+      padding:8px 16px; background:var(--bg-secondary); border-bottom:1px solid var(--border);
+      gap:12px; flex-wrap:wrap;
+    }
+    .header-left { display:flex; align-items:center; gap:16px; }
+    .logo { font-size:18px; font-weight:700; color:var(--yellow); letter-spacing:-0.5px; }
+    .logo span { color:var(--text-secondary); font-weight:400; }
+    .header-price { display:flex; align-items:center; gap:10px; }
+    .current-price { font-size:22px; font-weight:700; letter-spacing:-0.3px; }
+    .current-price.up { color:var(--green); }
+    .current-price.down { color:var(--red); }
+    .change-24h { font-size:13px; font-weight:500; padding:2px 8px; border-radius:4px; }
+    .change-24h.up { color:var(--green); background:rgba(14,203,129,0.1); }
+    .change-24h.down { color:var(--red); background:rgba(246,70,93,0.1); }
+    .header-right { display:flex; align-items:center; gap:12px; font-size:12px; color:var(--text-secondary); }
+    .status-dot { width:7px; height:7px; border-radius:50%; background:var(--green); display:inline-block; animation:pulse 1.5s infinite; }
+    .status-dot.disconnected { background:var(--red); animation:none; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+
+    /* ── LAYOUT ── */
+    .app { display:flex; flex-direction:column; height:100vh; }
+    .main { display:flex; flex:1; min-height:0; }
+    .chart-area { flex:1; display:flex; flex-direction:column; min-width:0; position:relative; }
+    .chart-toolbar {
+      display:flex; align-items:center; gap:3px; padding:6px 10px;
+      background:var(--bg-secondary); border-bottom:1px solid var(--border); flex-wrap:wrap;
+    }
+    .tf-btn {
+      padding:3px 10px; font-size:11px; font-weight:500; background:transparent;
+      color:var(--text-secondary); border:1px solid transparent; border-radius:3px;
+      cursor:pointer; transition:all .12s; font-family:var(--font);
+    }
+    .tf-btn:hover { color:var(--text-primary); background:var(--bg-hover); }
+    .tf-btn.active { color:var(--blue); border-color:var(--blue); background:rgba(41,98,255,0.1); }
+    .chart-toolbar .sep { width:1px; height:16px; background:var(--border); margin:0 4px; }
+    .chart-toolbar .spacer { flex:1; }
+
+    /* Indicator buttons */
+    .ind-btn {
+      padding:3px 8px; font-size:11px; font-weight:500; background:transparent;
+      color:var(--text-secondary); border:1px solid transparent; border-radius:3px;
+      cursor:pointer; transition:all .12s; font-family:var(--font);
+    }
+    .ind-btn:hover { color:var(--text-primary); background:var(--bg-hover); }
+    .ind-btn.active { color:var(--yellow); border-color:var(--yellow); background:rgba(240,185,11,0.1); }
+    .ind-btn.on { color:var(--green); border-color:var(--green); background:rgba(14,203,129,0.1); }
+    .candle-countdown { font-size:11px; font-weight:600; color:var(--text-secondary); font-variant-numeric:tabular-nums; min-width:50px; }
+
+    .chart-wrap {
+      flex:1; position:relative; min-height:300px; overflow:hidden;
+    }
+    #chart { width:100%; height:100%; }
+    #superCanvas {
+      position:absolute; top:0; left:0; width:100%; height:100%;
+      pointer-events:none; z-index:100;
+    }
+
+    .chart-loading {
+      position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+      background:var(--bg-primary); z-index:10;
+    }
+    .chart-loading.hidden { display:none; }
+    .spinner { width:36px; height:36px; border:3px solid var(--border); border-top-color:var(--blue); border-radius:50%; animation:spin .8s linear infinite; }
+    @keyframes spin { to{transform:rotate(360deg)} }
+
+    /* ── RIGHT PANEL ── */
+    .right-panel {
+      width:340px; min-width:340px; background:var(--bg-secondary);
+      display:flex; flex-direction:column; border-left:1px solid var(--border);
+      overflow-y:auto; font-size:13px;
+    }
+    .r-section { padding:12px 14px; border-bottom:1px solid var(--border); }
+    .r-section:last-child { border-bottom:none; }
+    .r-title { font-size:11px; font-weight:600; color:var(--text-secondary); text-transform:uppercase; letter-spacing:.5px; margin-bottom:8px; }
+    .r-row { display:flex; justify-content:space-between; align-items:center; padding:3px 0; }
+    .r-label { color:var(--text-secondary); }
+    .r-value { font-weight:500; }
+    .r-value.green { color:var(--green); }
+    .r-value.red { color:var(--red); }
+    .r-value.blue { color:var(--blue); }
+    .r-value.purple { color:var(--purple); }
+    .btn-reset {
+      font-size:10px; padding:2px 8px; background:transparent; color:var(--red);
+      border:1px solid var(--red); border-radius:3px; cursor:pointer;
+      font-family:var(--font); transition:all .12s;
+    }
+    .btn-reset:hover { background:rgba(246,70,93,0.1); }
+
+    .pos-badge {
+      display:flex; align-items:center; gap:6px; padding:7px 12px; border-radius:5px;
+      font-weight:600; font-size:13px; margin-bottom:8px;
+    }
+    .pos-badge.none { background:rgba(120,123,134,0.08); color:var(--text-secondary); }
+    .pos-badge.long { background:rgba(14,203,129,0.1); color:var(--green); }
+    .pos-badge.short { background:rgba(246,70,93,0.1); color:var(--red); }
+
+    /* Pipeline Status */
+    .pipeline-grid {
+      display:grid; grid-template-columns:repeat(2, 1fr); gap:4px;
+    }
+    .pipeline-item {
+      background:var(--bg-primary); border-radius:4px; padding:6px 8px;
+      font-size:10px; display:flex; align-items:center; gap:4px;
+    }
+    .pipeline-item.active { background:rgba(14,203,129,0.1); }
+    .pipeline-item.pending { background:rgba(240,185,11,0.1); }
+    .pipeline-item .dot { width:6px; height:6px; border-radius:50%; }
+    .pipeline-item .dot.green { background:var(--green); }
+    .pipeline-item .dot.yellow { background:var(--yellow); }
+    .pipeline-item .dot.gray { background:var(--text-secondary); }
+
+    /* Structural State */
+    .state-badge {
+      padding:6px 12px; border-radius:4px; font-weight:700; font-size:12px;
+      text-align:center; margin:8px 0;
+    }
+    .state-badge.uptrend { background:rgba(14,203,129,0.15); color:var(--green); }
+    .state-badge.downtrend { background:rgba(246,70,93,0.15); color:var(--red); }
+    .state-badge.sideway { background:rgba(240,185,11,0.15); color:var(--yellow); }
+
+    /* River & Darwin */
+    .learning-box {
+      background:var(--bg-primary); border-radius:5px; padding:8px 10px; margin-top:8px;
+    }
+    .learning-box .r-row { font-size:11px; }
+    .confidence-bar {
+      height:4px; background:var(--bg-hover); border-radius:2px; margin-top:4px; overflow:hidden;
+    }
+    .confidence-fill {
+      height:100%; background:linear-gradient(90deg, var(--blue), var(--green));
+      border-radius:2px; transition:width .3s;
+    }
+
+    /* Authorization Badge */
+    .auth-badge {
+      padding:8px 12px; border-radius:5px; font-weight:700; font-size:12px;
+      text-align:center; margin-top:8px;
+    }
+    .auth-badge.approved { background:rgba(14,203,129,0.15); color:var(--green); }
+    .auth-badge.rejected { background:rgba(246,70,93,0.15); color:var(--red); }
+    .auth-badge.pending { background:rgba(120,123,134,0.15); color:var(--text-secondary); }
+
+    .btn-primary {
+      width:100%; padding:10px; font-size:14px; font-weight:700; border:none;
+      border-radius:5px; cursor:pointer; transition:all .12s; font-family:var(--font); margin-bottom:6px;
+    }
+    .btn-primary:disabled { opacity:.4; cursor:not-allowed; }
+    .btn-primary.long { background:var(--green); color:#fff; }
+    .btn-primary.long:hover:not(:disabled) { background:#0aad6c; }
+    .btn-primary.short { background:var(--red); color:#fff; }
+    .btn-primary.short:hover:not(:disabled) { background:#d9384e; }
+    .btn-secondary {
+      width:100%; padding:8px; font-size:13px; font-weight:600; background:transparent;
+      color:var(--red); border:1px solid var(--red); border-radius:5px; cursor:pointer;
+      font-family:var(--font); transition:all .12s;
+    }
+    .btn-secondary:hover { background:rgba(246,70,93,0.08); }
+    .btn-secondary:disabled { opacity:.4; cursor:not-allowed; }
+
+    /* ── INDICATOR PANEL ── */
+    .ind-panel {
+      position:absolute; top:40px; left:10px; background:var(--bg-card);
+      border:1px solid var(--border); border-radius:6px; padding:10px 12px;
+      z-index:20; min-width:160px; display:none; box-shadow:0 4px 20px rgba(0,0,0,.5);
+    }
+    .ind-panel.show { display:block; }
+    .ind-panel h4 { font-size:12px; margin-bottom:6px; color:var(--text-primary); }
+    .ind-item {
+      display:flex; align-items:center; gap:6px; padding:4px 0; font-size:12px; cursor:pointer;
+    }
+    .ind-item:hover { color:var(--text-primary); }
+    .ind-item input[type=checkbox] { accent-color:var(--blue); }
+    .ind-item .ind-color { width:10px; height:10px; border-radius:50%; display:inline-block; }
+
+    /* ── HISTORY ── */
+    .history-bar {
+      background:var(--bg-secondary); border-top:1px solid var(--border); flex-shrink:0;
+    }
+    .history-bar .hdr {
+      display:flex; justify-content:space-between; align-items:center;
+      padding:6px 14px; cursor:pointer;
+    }
+    .history-bar .hdr .r-title { margin-bottom:0; }
+    .btn-csv {
+      padding:3px 10px; font-size:10px; font-weight:600; background:transparent;
+      color:var(--blue); border:1px solid var(--blue); border-radius:3px;
+      cursor:pointer; font-family:var(--font); transition:all .12s;
+    }
+    .btn-csv:hover { background:rgba(41,98,255,0.08); }
+    .history-body { max-height:140px; overflow-y:auto; }
+    .history-body.hide { display:none; }
+    .htable { width:100%; border-collapse:collapse; font-size:11px; white-space:nowrap; }
+    .htable th {
+      background:var(--bg-primary); color:var(--text-secondary); font-weight:600;
+      padding:5px 10px; text-align:left; position:sticky; top:0; z-index:1;
+    }
+    .htable td { padding:4px 10px; border-bottom:1px solid var(--border); }
+    .htable tr:hover td { background:var(--bg-hover); }
+    .h-empty { text-align:center; padding:16px; color:var(--text-secondary); font-size:12px; }
+
+    /* ── TOAST ── */
+    .toast-c {
+      position:fixed; top:12px; right:12px; z-index:9999; display:flex; flex-direction:column; gap:6px;
+    }
+    .toast {
+      padding:10px 16px; border-radius:5px; font-size:12px; font-weight:500; color:#fff;
+      box-shadow:0 4px 16px rgba(0,0,0,.4); animation:slideIn .25s ease; max-width:300px; font-family:var(--font);
+    }
+    .toast.ok { background:var(--green); }
+    .toast.err { background:var(--red); }
+    .toast.info { background:var(--blue); }
+    .toast.warn { background:var(--orange); }
+    .toast.out { animation:slideOut .25s ease forwards; }
+    @keyframes slideIn { from{transform:translateX(100%);opacity:0} to{transform:translateX(0);opacity:1} }
+    @keyframes slideOut { from{transform:translateX(0);opacity:1} to{transform:translateX(100%);opacity:0} }
+
+    /* ── RESPONSIVE ── */
+    @media(max-width:860px){
+      .main { flex-direction:column; }
+      .right-panel { width:100%; min-width:auto; border-left:none; border-top:1px solid var(--border); max-height:50vh; }
+      .chart-area { height:50vh; }
+      .header { padding:6px 10px; }
+      .current-price { font-size:17px; }
+    }
+  </style>
+</head>
+<body>
+<div class="app">
+
+  <!-- ═══ HEADER ═══ -->
+  <header class="header">
+    <div class="header-left">
+      <div class="logo">ST_LMS <span>Dashboard</span></div>
+      <div class="header-price">
+        <span class="current-price" id="hPrice">—</span>
+        <span class="change-24h" id="hChange">—</span>
+      </div>
+    </div>
+    <div class="header-right">
+      <span>Balance: <b id="hBalance">$10,000</b></span>
+      <span>Equity: <b id="hEquity">$10,000</b></span>
+      <span class="status-dot" id="statusDot"></span>
+      <span id="statusText">Live</span>
+    </div>
+  </header>
+
+  <!-- ═══ MAIN ═══ -->
+  <div class="main">
+
+    <!-- ─── CHART AREA ─── -->
+    <div class="chart-area">
+      <div class="chart-toolbar">
+        <button class="tf-btn active" data-tf="1m">1m</button>
+        <button class="tf-btn" data-tf="5m">5m</button>
+        <button class="tf-btn" data-tf="15m">15m</button>
+        <button class="tf-btn" data-tf="1h">1h</button>
+        <button class="tf-btn" data-tf="4h">4h</button>
+        <span class="sep"></span>
+        <button class="ind-btn" id="btnInd">📊 Indicators</button>
+        <span class="sep"></span>
+        <span class="candle-countdown" id="candleCountdown">—</span>
+        <span class="spacer"></span>
+        <span style="font-size:10px;color:var(--text-secondary)" id="wsStatus">●</span>
+      </div>
+
+      <div class="chart-wrap" id="chartWrap">
+        <div class="chart-loading" id="chartLoading"><div class="spinner"></div></div>
+        <div id="chart"></div>
+        <canvas id="superCanvas"></canvas>
+        <div class="candle-tooltip" id="candleTooltip">
+          <div class="ct-time" id="ctTime">—</div>
+          <div class="ct-row"><span class="ct-lbl">Open</span><span class="ct-val" id="ctOpen">—</span></div>
+          <div class="ct-row"><span class="ct-lbl">High</span><span class="ct-val green" id="ctHigh">—</span></div>
+          <div class="ct-row"><span class="ct-lbl">Low</span><span class="ct-val red" id="ctLow">—</span></div>
+          <div class="ct-row"><span class="ct-lbl">Close</span><span class="ct-val" id="ctClose">—</span></div>
+          <div class="ct-row"><span class="ct-lbl">Volume</span><span class="ct-val" id="ctVol">—</span></div>
+        </div>
+        <!-- Indicator panel popup -->
+        <div class="ind-panel" id="indPanel">
+          <h4>Indicators</h4>
+          <div id="indList"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ─── RIGHT PANEL ─── -->
+    <div class="right-panel">
+
+      <!-- Account -->
+      <div class="r-section">
+        <div class="r-title">Account</div>
+        <div class="r-row"><span class="r-label">Balance</span><span class="r-value" id="dBalance">$10,000.00</span></div>
+        <div class="r-row"><span class="r-label">Equity</span><span class="r-value blue" id="dEquity">$10,000.00</span></div>
+        <div class="r-row"><span class="r-label">Margin</span><span class="r-value" id="dMargin">$0.00</span></div>
+        <div class="r-row"><span class="r-label">Available</span><span class="r-value" id="dAvail">$10,000.00</span></div>
+        <div class="r-row"><span class="r-label">PnL</span><span class="r-value" id="dPnl">$0.00</span></div>
+      </div>
+
+      <!-- Position -->
+      <div class="r-section">
+        <div class="r-title">Positions (<span id="posCount">0</span>)</div>
+        <div class="pos-badge none" id="posBadge"><span>○</span> No Positions</div>
+        <div id="posDetail" style="display:none"></div>
+      </div>
+
+      <!-- Structural State -->
+      <div class="r-section">
+        <div class="r-title">Market Structure</div>
+        <div class="state-badge sideway" id="structState">SIDEWAY</div>
+        <div class="r-row"><span class="r-label">Confidence</span><span class="r-value purple" id="structConf">—</span></div>
+        <div class="confidence-bar"><div class="confidence-fill" id="structConfBar" style="width:0%"></div></div>
+        <div class="r-row" style="margin-top:6px;"><span class="r-label">Geometry</span><span class="r-value" id="structGeom">—</span></div>
+        <div class="r-row"><span class="r-label">TF Alignment</span><span class="r-value" id="tfAlign">—</span></div>
+      </div>
+
+      <!-- Pipeline Status -->
+      <div class="r-section">
+        <div class="r-title">Pipeline Activity</div>
+        <div class="pipeline-grid" id="pipelineGrid">
+          <!-- Auto-generated by JS -->
+        </div>
+      </div>
+
+      <!-- Authorization -->
+      <div class="r-section">
+        <div class="r-title">Authorization</div>
+        <div class="auth-badge pending" id="authBadge">PENDING</div>
+        <div class="r-row" style="margin-top:6px;"><span class="r-label">Reason</span><span class="r-value" id="authReason">—</span></div>
+        <div class="r-row"><span class="r-label">Confidence</span><span class="r-value" id="authConf">—</span></div>
+      </div>
+
+      <!-- River & Darwin -->
+      <div class="r-section">
+        <div class="r-title">Learning System</div>
+        <div class="learning-box">
+          <div class="r-row"><span class="r-label">River Trades</span><span class="r-value" id="riverTrades">0</span></div>
+          <div class="r-row"><span class="r-label">Win Rate</span><span class="r-value" id="riverWinRate">—</span></div>
+          <div class="r-row"><span class="r-label">Profit Factor</span><span class="r-value" id="riverPF">—</span></div>
+          <div class="r-row"><span class="r-label">Darwin Rec</span><span class="r-value blue" id="darwinRec">UNKNOWN</span></div>
+        </div>
+        <div class="learning-box" style="margin-top:8px;">
+          <div class="r-row"><span class="r-label">Opportunity Cost</span><span class="r-value orange" id="oppCost">$0</span></div>
+          <div class="r-row"><span class="r-label">Rejected Plans</span><span class="r-value" id="rejectedCount">0</span></div>
+        </div>
+      </div>
+
+      <!-- Controls -->
+      <div class="r-section">
+        <div class="r-title">Controls</div>
+        <button class="btn-primary long" id="btnStart">▶ Start Simulation</button>
+        <button class="btn-primary short" id="btnStop" disabled>⏹ Stop</button>
+        <button class="btn-secondary" id="btnReset">↺ Reset</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ HISTORY ═══ -->
+  <div class="history-bar">
+    <div class="hdr" id="historyToggle">
+      <div class="r-title">Trade History (<span id="hCount">0</span>)</div>
+      <button class="btn-csv" id="btnCsv">Export CSV</button>
+    </div>
+    <div class="history-body" id="historyBody">
+      <table class="htable">
+        <thead>
+          <tr>
+            <th>Time</th><th>Type</th><th>Entry</th><th>Exit</th><th>Qty</th>
+            <th>Lev</th><th>PnL $</th><th>PnL %</th><th>Fee $</th><th>Dur</th><th>Status</th>
+          </tr>
+        </thead>
+        <tbody id="historyTbody"><tr><td class="h-empty" colspan="11">No trades yet</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ TOAST ═══ -->
+<div class="toast-c" id="toastC"></div>
+
+<script>
+// ═══════════════════════════════════════════════════════════════
+//  CONFIG
+// ═══════════════════════════════════════════════════════════════
+const CFG = {
+  INIT_BAL: 10000,
+  SYM: 'BTCUSDT',
+  DEF_INT: '1m'
+};
+
+// ═══════════════════════════════════════════════════════════════
+//  STATE
+// ═══════════════════════════════════════════════════════════════
+const S = {
+  balance: CFG.INIT_BAL,
+  equity: CFG.INIT_BAL,
+  positions: [],
+  trades: [],
+  candles: [],
+  price: null,
+  interval: CFG.DEF_INT,
+  running: false,
+  _chart: null,
+  _candleSeries: null,
+  _volSeries: null,
+  _timer: null,
+  pipelineStages: [
+    {id:'C001', name:'Observe', status:'pending'},
+    {id:'C002', name:'Measure', status:'pending'},
+    {id:'C003', name:'ST Engine', status:'pending'},
+    {id:'C004', name:'Preserve', status:'pending'},
+    {id:'C005', name:'Remember', status:'pending'},
+    {id:'C006', name:'Select', status:'pending'},
+    {id:'C007', name:'Understand', status:'pending'},
+    {id:'C008', name:'Classify', status:'pending'},
+    {id:'C009', name:'Plan', status:'pending'},
+    {id:'C010', name:'River', status:'pending'},
+    {id:'C011', name:'Authorize', status:'pending'},
+    {id:'C012', name:'Execute', status:'pending'}
+  ]
+};
+
+// ═══════════════════════════════════════════════════════════════
+//  UTILITY
+// ═══════════════════════════════════════════════════════════════
+const $ = id => document.getElementById(id);
+const fp = p => p == null ? '—' : '$' + Number(p).toLocaleString('en',{minFrac:2,maxFrac:2});
+const ft = ts => new Date(ts).toLocaleString('en',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'});
+const fv = v => { if (v==null) return '—'; if (v>=1e6) return (v/1e6).toFixed(2)+'M'; if (v>=1e3) return (v/1e3).toFixed(2)+'K'; return v.toFixed(2); };
+
+// ═══════════════════════════════════════════════════════════════
+//  CHART INIT
+// ═══════════════════════════════════════════════════════════════
+function initChart() {
+  const chartContainer = $('chart');
+  S._chart = LightweightCharts.createChart(chartContainer, {
+    layout: { background: { type: 'solid', color: '#0d0d0d' }, textColor: '#d1d4dc' },
+    grid: { vertLines: { color: '#2a2e39' }, horzLines: { color: '#2a2e39' } },
+    crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
+    timeScale: { borderColor: '#2a2e39', timeVisible: true, secondsVisible: false },
+  });
+
+  S._candleSeries = S._chart.addCandlestickSeries({
+    upColor: '#0ecb81', downColor: '#f6465d', borderUpColor: '#0ecb81', borderDownColor: '#f6465d',
+    wickUpColor: '#0ecb81', wickDownColor: '#f6465d',
+  });
+
+  S._volSeries = S._chart.addHistogramSeries({
+    color: '#26a69a', priceFormat: { type: 'volume' }, priceScaleId: '',
+    scaleMargins: { top: 0.85, bottom: 0 },
+  });
+
+  // Resize handler
+  window.addEventListener('resize', () => {
+    S._chart.applyOptions({ width: chartContainer.clientWidth, height: chartContainer.clientHeight });
+  });
+
+  // Candle tooltip
+  S._chart.subscribeCrosshairMove(param => {
+    const tooltip = $('candleTooltip');
+    if (!param.time || !param.seriesData.size) {
+      tooltip.classList.remove('show');
+      return;
+    }
+    const data = param.seriesData.get(S._candleSeries);
+    if (!data) return;
+    
+    $('ctTime').textContent = ft(data.time * 1000);
+    $('ctOpen').textContent = data.open.toFixed(2);
+    $('ctHigh').textContent = data.high.toFixed(2);
+    $('ctLow').textContent = data.low.toFixed(2);
+    $('ctClose').textContent = data.close.toFixed(2);
+    $('ctVol').textContent = fv(data.value);
+    
+    const isGreen = data.close >= data.open;
+    $('ctHigh').className = 'ct-val ' + (isGreen ? 'green' : 'red');
+    $('ctLow').className = 'ct-val ' + (isGreen ? 'red' : 'green');
+    
+    tooltip.style.left = param.point.x + 10 + 'px';
+    tooltip.style.top = param.point.y + 10 + 'px';
+    tooltip.classList.add('show');
+  });
+
+  $('chartLoading').classList.add('hidden');
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  PIPELINE VISUALIZATION
+// ═══════════════════════════════════════════════════════════════
+function renderPipeline() {
+  const grid = $('pipelineGrid');
+  grid.innerHTML = '';
+  
+  S.pipelineStages.forEach(stage => {
+    const item = document.createElement('div');
+    item.className = 'pipeline-item ' + stage.status;
+    
+    const dot = document.createElement('div');
+    dot.className = 'dot ' + (stage.status === 'active' ? 'green' : stage.status === 'pending' ? 'yellow' : 'gray');
+    
+    item.appendChild(dot);
+    item.appendChild(document.createTextNode(stage.id + ' ' + stage.name));
+    grid.appendChild(item);
+  });
+}
+
+function updatePipelineStage(stageId, status) {
+  const stage = S.pipelineStages.find(s => s.id === stageId);
+  if (stage) {
+    stage.status = status;
+    renderPipeline();
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  SIMULATION LOOP
+// ═══════════════════════════════════════════════════════════════
+function generateCandle() {
+  const lastClose = S.candles.length > 0 ? S.candles[S.candles.length - 1].close : 100;
+  const change = (Math.random() - 0.5) * 2;
+  const close = lastClose + change;
+  const high = Math.max(close, lastClose) + Math.random();
+  const low = Math.min(close, lastClose) - Math.random();
+  const open = lastClose;
+  
+  return {
+    time: Math.floor(Date.now() / 1000),
+    open: parseFloat(open.toFixed(2)),
+    high: parseFloat(high.toFixed(2)),
+    low: parseFloat(low.toFixed(2)),
+    close: parseFloat(close.toFixed(2)),
+    volume: Math.floor(Math.random() * 1000) + 100
+  };
+}
+
+function simulatePipeline() {
+  // Simulate pipeline execution
+  const stages = ['C001', 'C002', 'C003', 'C004', 'C005', 'C006', 'C007', 'C008', 'C009', 'C010', 'C011', 'C012'];
+  let delay = 0;
+  
+  stages.forEach((stageId, index) => {
+    setTimeout(() => {
+      updatePipelineStage(stageId, 'active');
+      setTimeout(() => {
+        updatePipelineStage(stageId, 'done');
+      }, 200);
+    }, delay);
+    delay += 100;
+  });
+}
+
+function simulationStep() {
+  if (!S.running) return;
+  
+  // Generate new candle
+  const candle = generateCandle();
+  S.candles.push(candle);
+  S.price = candle.close;
+  
+  // Update chart
+  S._candleSeries.update({
+    time: candle.time,
+    open: candle.open,
+    high: candle.high,
+    low: candle.low,
+    close: candle.close,
+  });
+  
+  S._volSeries.update({
+    time: candle.time,
+    value: candle.volume,
+    color: candle.close >= candle.open ? 'rgba(14, 203, 129, 0.5)' : 'rgba(246, 70, 93, 0.5)',
+  });
+  
+  // Update header price
+  const priceEl = $('hPrice');
+  priceEl.textContent = candle.close.toFixed(2);
+  priceEl.className = 'current-price ' + (candle.close >= candle.open ? 'up' : 'down');
+  
+  // Simulate pipeline
+  simulatePipeline();
+  
+  // Random structural state update
+  if (Math.random() > 0.7) {
+    const states = ['uptrend', 'downtrend', 'sideway'];
+    const state = states[Math.floor(Math.random() * states.length)];
+    const badge = $('structState');
+    badge.className = 'state-badge ' + state;
+    badge.textContent = state.toUpperCase();
+  }
+  
+  // Random authorization
+  if (Math.random() > 0.8) {
+    const approved = Math.random() > 0.3;
+    const authBadge = $('authBadge');
+    authBadge.className = 'auth-badge ' + (approved ? 'approved' : 'rejected');
+    authBadge.textContent = approved ? 'APPROVED' : 'REJECTED';
+    $('authReason').textContent = approved ? 'Structure aligned' : 'TF conflict';
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  EVENT HANDLERS
+// ═══════════════════════════════════════════════════════════════
+$('btnStart').addEventListener('click', () => {
+  if (S.running) return;
+  S.running = true;
+  $('btnStart').disabled = true;
+  $('btnStop').disabled = false;
+  $('statusDot').classList.remove('disconnected');
+  $('wsStatus').textContent = '● LIVE';
+  showToast('Simulation started', 'ok');
+  
+  // Start simulation loop
+  S._timer = setInterval(simulationStep, 1000);
+});
+
+$('btnStop').addEventListener('click', () => {
+  if (!S.running) return;
+  S.running = false;
+  $('btnStart').disabled = false;
+  $('btnStop').disabled = true;
+  $('statusDot').classList.add('disconnected');
+  $('wsStatus').textContent = '● PAUSED';
+  clearInterval(S._timer);
+  showToast('Simulation paused', 'warn');
+});
+
+$('btnReset').addEventListener('click', () => {
+  S.balance = CFG.INIT_BAL;
+  S.equity = CFG.INIT_BAL;
+  S.candles = [];
+  S.trades = [];
+  S.positions = [];
+  S._candleSeries.setData([]);
+  S._volSeries.setData([]);
+  $('dBalance').textContent = fp(CFG.INIT_BAL);
+  $('dEquity').textContent = fp(CFG.INIT_BAL);
+  $('hBalance').textContent = fp(CFG.INIT_BAL);
+  $('hEquity').textContent = fp(CFG.INIT_BAL);
+  $('structState').className = 'state-badge sideway';
+  $('structState').textContent = 'SIDEWAY';
+  $('authBadge').className = 'auth-badge pending';
+  $('authBadge').textContent = 'PENDING';
+  $('historyTbody').innerHTML = '<tr><td class="h-empty" colspan="11">No trades yet</td></tr>';
+  $('hCount').textContent = '0';
+  showToast('Dashboard reset', 'info');
+});
+
+$('historyToggle').addEventListener('click', () => {
+  $('historyBody').classList.toggle('hide');
+});
+
+$('btnCsv').addEventListener('click', () => {
+  if (S.trades.length === 0) {
+    showToast('No trades to export', 'warn');
+    return;
+  }
+  const headers = ['Time', 'Type', 'Entry', 'Exit', 'Qty', 'Lev', 'PnL $', 'PnL %', 'Fee $', 'Dur', 'Status'];
+  const rows = S.trades.map(t => [t.time, t.type, t.entry, t.exit, t.qty, t.lev, t.pnl, t.pnlPct, t.fee, t.dur, t.status]);
+  const csv = [headers, ...rows].map(r => r.join(',')).join('\n');
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'st_lms_trades.csv';
+  a.click();
+  URL.revokeObjectURL(url);
+  showToast('CSV exported', 'ok');
+});
+
+// Toast notification
+function showToast(msg, type='info') {
+  const toast = document.createElement('div');
+  toast.className = 'toast ' + type;
+  toast.textContent = msg;
+  $('toastC').appendChild(toast);
+  setTimeout(() => {
+    toast.classList.add('out');
+    setTimeout(() => toast.remove(), 250);
+  }, 2000);
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  INIT
+// ═══════════════════════════════════════════════════════════════
+window.addEventListener('DOMContentLoaded', () => {
+  initChart();
+  renderPipeline();
+  showToast('Dashboard ready', 'info');
+});
+</script>
+</body>
+</html>
