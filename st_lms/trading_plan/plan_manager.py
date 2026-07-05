@@ -79,6 +79,7 @@ class PlanManager:
         plan: TradingPlan,
         river_recommendation: RiverRecommendation,
         enable_time_filter: bool = False,
+        enable_liquidation_check: bool = True,
     ) -> Authorization:
         """C011 — Authorize: delegasi ke AuthorizationGateway (single authority).
 
@@ -86,6 +87,7 @@ class PlanManager:
             plan: TradingPlan must be in READY state
             river_recommendation: Wajib — hasil dari River Plan Review (Prinsip Mutlak #3)
             enable_time_filter: Enable Time-Based Filter (default False)
+            enable_liquidation_check: Enable Liquidation Hard-Stop (default True)
         """
         now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
 
@@ -100,4 +102,4 @@ class PlanManager:
                 timestamp=now_ms,
             )
 
-        return self._auth_gateway.authorize(plan, river_recommendation, enable_time_filter)
+        return self._auth_gateway.authorize(plan, river_recommendation, enable_time_filter, enable_liquidation_check)

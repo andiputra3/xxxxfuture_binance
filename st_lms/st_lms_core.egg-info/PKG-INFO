@@ -1,0 +1,7 @@
+Metadata-Version: 2.4
+Name: st-lms-core
+Version: 1.0.1
+Summary: ST_LMS — 13-Layer Pipeline (C001-C012 + Post-Trade) | Supertrend + River + Darwin + Risk + Backtest
+Requires-Python: >=3.12
+Requires-Dist: python-binance>=1.0.19
+Requires-Dist: python-dotenv>=1.0.0
