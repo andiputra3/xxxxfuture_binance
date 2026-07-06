@@ -19,7 +19,7 @@ class BinanceObserver(Observer):
         self._service = service
 
     def get_candles(self, symbol: str, timeframes: List[Timeframe], limit: int) -> Dict[Timeframe, List[Candle]]:
-        result: Dict[Timeframe, List[Candle]> = {}
+        result: Dict[Timeframe, List[Candle]] = {}
         for tf in timeframes:
             candles = self._service.get_candles(symbol, tf, limit)
             result[tf] = candles
