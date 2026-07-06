@@ -17,9 +17,11 @@ config/core_config.py
 config/exchange_config.py
 config/supertrend_config.py
 config/trading_config.py
+core/telemetry.py
 darwin/__init__.py
 darwin/darwin_engine.py
 dashboard/app.py
+dashboard/dashboard_server.py
 exceptions/__init__.py
 exceptions/structure_exception.py
 exceptions/trading_exception.py
@@ -86,6 +88,7 @@ remember/memory.py
 risk/__init__.py
 risk/risk_manager.py
 river/__init__.py
+river/opportunity_learning.py
 river/river_entry.py
 river/river_exit.py
 river/river_learning.py
@@ -107,10 +110,14 @@ tests/test_enums.py
 tests/test_measure.py
 tests/test_models.py
 tests/test_trading_plan.py
+tests/test_constitution/test_liquidation_hardstop.py
+tests/test_constitution/test_multi_tf_conflict.py
 tests/test_constitution/test_trend_authority.py
 tests/test_integration/test_pipeline_flow.py
 tests/test_measure/test_atr.py
 tests/test_models/test_candle.py
+tests/test_stress/__init__.py
+tests/test_stress/test_stress_test.py
 tests/test_structure/test_line_builder.py
 trading_plan/__init__.py
 trading_plan/plan_manager.py

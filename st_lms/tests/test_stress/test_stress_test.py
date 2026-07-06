@@ -16,10 +16,10 @@ from st_lms.measure.supertrend_calculator import calculate_supertrend_points
 from st_lms.multi_timeframe_structural_engine.engine import MultiTimeframeStructuralEngine
 from st_lms.common.enums import Timeframe
 from st_lms.classify.classifier import StateClassifier
-from st_lms.authorize.gateway import AuthorizationGateway
-from st_lms.execute.simulation import SimulationExecutor
-from st_lms.river.learning import RiverLearning
-from st_lms.config import Config
+from st_lms.authorize.authorization_gateway import AuthorizationGateway
+from st_lms.execute.simulation_executor import SimulationExecutor
+from st_lms.river.river_learning import RiverLearning
+from st_lms.config.core_config import BOT_NAME, CORE_VERSION
 
 
 class StressTestSimulator:
